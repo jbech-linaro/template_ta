@@ -5,3 +5,4 @@ GSYMS
 GTAGS
 ta/out/
 *.o
+host/template_ta_host

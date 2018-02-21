@@ -12,7 +12,7 @@ ROOT=`dirname $ROOT`
 export PATH=${ROOT}/toolchains/aarch32/bin:$PATH
 
 # Path to the TA-DEV-KIT coming from optee_os
-export TA_DEV_KIT_DIR=${ROOT}/optee_os/out/arm-plat-vexpress/export-ta_arm32
+export TA_DEV_KIT_DIR=${ROOT}/optee_os/out/arm/export-ta_arm32
 
 # Path to the client library (GP Client API)
 export TEEC_EXPORT=${ROOT}/optee_client/out/export
