@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, Linaro Limited
+ * Copyright (c) 2018, Linaro Limited
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -31,7 +31,7 @@
 #ifndef USER_TA_HEADER_DEFINES_H
 #define USER_TA_HEADER_DEFINES_H
 
-#include <template_ta.h>
+#include <hotp_ta.h>
 
 #define TA_UUID TEMPLATE_TA_UUID
 
@@ -40,8 +40,8 @@
 #define TA_DATA_SIZE                (32 * 1024)
 
 #define TA_CURRENT_TA_EXT_PROPERTIES \
-    { TA_PROP_STR_DESCRIPTION, USER_TA_PROP_TYPE_STRING, \
-        "Template Trusted Application for ARMv7-A QEMU" }, \
-    { TA_PROP_STR_VERSION, USER_TA_PROP_TYPE_U32, &(const uint32_t){ 0x0010 } }
+	{ "gp.ta.description", USER_TA_PROP_TYPE_STRING, \
+	  "HMAC-Based One-Time Password Algorithm (RFC4226)" }, \
+	{ "gp.ta.version", USER_TA_PROP_TYPE_U32, &(const uint32_t){ 0x0010 } }
 
 #endif

@@ -1,29 +1,10 @@
 /*
- * Copyright (c) 2016, Linaro Limited
+ * Copyright (c) 2017, Linaro Limited
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice,
- * this list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- * this list of conditions and the following disclaimer in the documentation
- * and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
+
 #include <err.h>
 #include <stdio.h>
 #include <string.h>
@@ -31,85 +12,105 @@
 /* OP-TEE TEE client API (built by optee_client) */
 #include <tee_client_api.h>
 
-/* To the the UUID (found the the TA's h-file(s)) */
-#include <template_ta.h> 
+/* For the UUID (found in the TA's h-file(s)) */
+#include <hotp_ta.h>
 
-#if USE_PTHREADS
-#include <pthread.h>
-static void *read_thread(void __unused *arg)
+struct test_value {
+	size_t count;
+	uint32_t expected;
+};
+
+/*
+ * Test values coming from the RFC4226 specification.
+ */
+struct test_value rfc4226_test_values[] = {
+	{ 0, 755224 },
+	{ 1, 287082 },
+	{ 2, 359152 },
+	{ 3, 969429 },
+	{ 4, 338314 },
+	{ 5, 254676 },
+	{ 6, 287922 },
+	{ 7, 162583 },
+	{ 8, 399871 },
+	{ 9, 520489 }
+};
+
+int main(int argc, char *argv[])
 {
-	pthread_t id = pthread_self();
-	printf("NW: Thread with 0x%08lx created\n", id);
-	return NULL;
-}
-#endif
+	TEEC_Context ctx;
+	TEEC_Operation op = { 0 };
+	TEEC_Result res;
+	TEEC_Session sess;
+	TEEC_UUID uuid = TEMPLATE_TA_UUID;
 
-static void call_taf_0(void)
-{
-        TEEC_Context ctx;
-        TEEC_Operation op;
-        TEEC_Result res;
-        TEEC_Session sess;
-        TEEC_UUID uuid = TEMPLATE_TA_UUID;
-        uint32_t err_origin;
-	uint32_t buf = 0xcafebabe;
-
-        /* Initialize a context connecting us to the TEE */
-        res = TEEC_InitializeContext(NULL, &ctx);
-        if (res != TEEC_SUCCESS)
-                errx(1, "NW: TEEC_InitializeContext failed with code 0x%x", res);
-
-	/* Open the session with the Trusted Application */
-        res = TEEC_OpenSession(&ctx, &sess, &uuid,
-                               TEEC_LOGIN_PUBLIC, NULL, NULL, &err_origin);
-        if (res != TEEC_SUCCESS)
-                errx(1, "NW: TEEC_Opensession failed with code 0x%x origin 0x%x",
-                        res, err_origin);
-
-	/* Clear the TEEC_Operation struct */
-        memset(&op, 0, sizeof(op));
+	int i;
+	uint32_t err_origin;
+	uint32_t hotp_value;
 
 	/*
-	 * Prepare the parameters that will be sent to the Trusted Application.
+	 * Shared key K ("12345678901234567890"), this is the key used in
+	 * RFC4226 - Test Vectors.
 	 */
-        op.paramTypes = TEEC_PARAM_TYPES(TEEC_MEMREF_TEMP_INOUT,
-                                         TEEC_NONE,
-                                         TEEC_NONE,
-                                         TEEC_NONE);
+	uint8_t K[] = {
+		0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38,
+		0x39, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36,
+		0x37, 0x38, 0x39, 0x30
+	};
 
-        op.params[0].tmpref.buffer = (void *)&buf;
-        op.params[0].tmpref.size = sizeof(uint32_t);
+	/* Initialize a context connecting us to the TEE */
+	res = TEEC_InitializeContext(NULL, &ctx);
+	if (res != TEEC_SUCCESS)
+		errx(1, "TEEC_InitializeContext failed with code 0x%x", res);
 
-	/* 
-	 * TEMPLATE_TA_FUNCTION_ID_0 is the actual function in the TA to be
-	 * called.
-	 */
-	printf("NW: Invoke the TA with buf val: 0x%08x\n", buf);
-        res = TEEC_InvokeCommand(&sess, TEMPLATE_TA_FUNCTION_ID_0, &op,
-                                 &err_origin);
-        if (res != TEEC_SUCCESS)
-                errx(1, "NW: TEEC_InvokeCommand failed with code 0x%x origin 0x%x",
-                        res, err_origin);
+	res = TEEC_OpenSession(&ctx, &sess, &uuid,
+			       TEEC_LOGIN_PUBLIC, NULL, NULL, &err_origin);
+	if (res != TEEC_SUCCESS)
+		errx(1, "TEEC_Opensession failed with code 0x%x origin 0x%x",
+		     res, err_origin);
 
-        /* We're done with the TA, close the session ... */
-        TEEC_CloseSession(&sess);
+	/* 1. Register the shared key */
+	op.paramTypes = TEEC_PARAM_TYPES(TEEC_MEMREF_TEMP_INPUT,
+					 TEEC_NONE, TEEC_NONE, TEEC_NONE);
+	op.params[0].tmpref.buffer = K;
+	op.params[0].tmpref.size = sizeof(K);
 
-        /* ... and destroy the context. */
-        TEEC_FinalizeContext(&ctx);
+	fprintf(stdout, "Register the shared key: %s\n", K);
+	res = TEEC_InvokeCommand(&sess, TA_HOTP_CMD_REGISTER_SHARED_KEY,
+				 &op, &err_origin);
+	if (res != TEEC_SUCCESS) {
+		fprintf(stderr, "TEEC_InvokeCommand failed with code 0x%x "
+			"origin 0x%x\n",
+			res, err_origin);
+		goto exit;
+	}
 
-        return;
-}  
+	/* 2. Get HMAC based One Time Passwords */
+	op.paramTypes = TEEC_PARAM_TYPES(TEEC_VALUE_OUTPUT, TEEC_NONE,
+					 TEEC_NONE, TEEC_NONE);
 
-int main() {
-#if USE_PTHREADS
-	pthread_t pt;
-	int err;
-	err = pthread_create(&pt, NULL, &read_thread, NULL);
-	if (err)
-		errx(1, "NW: can't create thread :[%s]\n", (char *)strerror(err));
-#endif
-	/* Call Trusted Application with TA function ID 0 */
-	call_taf_0();
+	for (i = 0; i < sizeof(rfc4226_test_values) / sizeof(struct test_value);
+	     i++) {
+		res = TEEC_InvokeCommand(&sess, TA_HOTP_CMD_GET_HOTP, &op,
+					 &err_origin);
+		if (res != TEEC_SUCCESS) {
+			fprintf(stderr, "TEEC_InvokeCommand failed with code "
+				"0x%x origin 0x%x\n", res, err_origin);
+			goto exit;
+		}
+
+		hotp_value = op.params[0].value.a;
+		fprintf(stdout, "HOTP: %d\n", hotp_value);
+
+		if (hotp_value != rfc4226_test_values[i].expected) {
+			fprintf(stderr, "Got unexpected HOTP from TEE! "
+				"Expected: %d, got: %d\n",
+				rfc4226_test_values[i].expected, hotp_value);
+		}
+	}
+exit:
+	TEEC_CloseSession(&sess);
+	TEEC_FinalizeContext(&ctx);
 
 	return 0;
 }
